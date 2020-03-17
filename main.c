@@ -31,7 +31,6 @@
 #include "hw_wkup.h"
 #include "hw_sys.h"
 #include "peripheral_setup.h"
-//#include "platform_devices.h"
 #include "bmp180.h"
 
 /* Task priorities */
@@ -41,13 +40,11 @@
 /* The rate at which data is template task counter is incremented. */
 #define mainCOUNTER_FREQUENCY_MS                OS_MS_2_TICKS(200)
 
-//__RETAINED  static OS_EVENT signal_i2c_eeprom;
-
 /*
  * Error code returned after an I2C operation. It can be used
  * to identify the reason of a failure.
  */
-//__RETAINED static HW_I2C_ABORT_SOURCE I2C_error_code;
+__RETAINED static HW_I2C_ABORT_SOURCE I2C_error_code;
 
 /* Task handle */
 __RETAINED static OS_TASK prvI2CTask_h;
@@ -129,7 +126,7 @@ static void system_init( void *pvParameters )
         OS_TASK_DELETE(xHandle);
 }
 
-void osDelay (u32 millisec)
+void os_delay (u32 millisec)
 {
         OS_DELAY_MS(millisec);
 }
@@ -140,11 +137,11 @@ static void set_target_address(uint16_t address)
          * Before address of the target will be changed I2C controller must be disabled. After
          * setting the proper address I2C can be reenabled.
          */
-//        hw_i2c_disable(HW_I2C1);
+        hw_i2c_disable(HW_I2C1);
 
         hw_i2c_set_target_address(HW_I2C1, address);
 
-//        hw_i2c_enable(HW_I2C1);
+        hw_i2c_enable(HW_I2C1);
 
         /*
          * Setting address in our case means we'll start some transfer with new device. For this
@@ -158,38 +155,34 @@ static void set_target_address(uint16_t address)
 static int8_t bmp_write_reg(uint8_t dev_addr, uint8_t reg, uint8_t *val, uint8_t len)
 {
         size_t wr_status = 0;
-        HW_I2C_ABORT_SOURCE abrt_src = HW_I2C_ABORT_NONE;
-//        resource_acquire(RES_MASK(RES_ID_I2C1), RES_WAIT_FOREVER);
-//        set_target_address(BMP180_I2C_ADDR);
+        I2C_error_code = HW_I2C_ABORT_NONE;
         /*
          * The first writing byte informs to which register rest data will be written.
          */
         hw_i2c_write_byte(HW_I2C1, reg);
-        wr_status = hw_i2c_write_buffer_sync(HW_I2C1, val, len, &abrt_src, HW_I2C_F_WAIT_FOR_STOP);
-        if ((wr_status < (ssize_t)len) || (abrt_src != HW_I2C_ABORT_NONE)) {
-                printf("bmp180 write failure: %u\n", abrt_src);
+        wr_status = hw_i2c_write_buffer_sync(HW_I2C1, val, len, &I2C_error_code, HW_I2C_F_WAIT_FOR_STOP);
+        if ((wr_status < (ssize_t)len) || (I2C_error_code != HW_I2C_ABORT_NONE)) {
+                printf("bmp180 write failure: %u\n", I2C_error_code);
+                return 1;
         }
-//        resource_release(RES_MASK(RES_ID_I2C1));
-        return wr_status;
+        return 0;
 }
 
 static int8_t bmp_read_reg(uint8_t dev_addr, uint8_t reg, uint8_t *val, uint8_t len)
 {
         size_t rd_status = 0;
-        HW_I2C_ABORT_SOURCE abrt_src = HW_I2C_ABORT_NONE;
-//        resource_acquire(RES_MASK(RES_ID_I2C1), RES_WAIT_FOREVER);
-//        set_target_address(BMP180_I2C_ADDR);
+        I2C_error_code = HW_I2C_ABORT_NONE;
         /*
          * Before reading values from sensor registers we need to send one byte information to it
          * to inform which sensor register will be read now.
          */
         hw_i2c_write_byte(HW_I2C1, reg);
-        rd_status = hw_i2c_read_buffer_sync(HW_I2C1, val, len, &abrt_src, HW_I2C_F_ADD_STOP);
-        if ((rd_status < (size_t)len) || (abrt_src != HW_I2C_ABORT_NONE)) {
-                printf("bmp180 read failure: %u", abrt_src);
+        rd_status = hw_i2c_read_buffer_sync(HW_I2C1, val, len, &I2C_error_code, HW_I2C_F_ADD_STOP);
+        if ((rd_status < (size_t)len) || (I2C_error_code != HW_I2C_ABORT_NONE)) {
+                printf("bmp180 read failure: %u", I2C_error_code);
+                return 1;
         }
-//        resource_release(RES_MASK(RES_ID_I2C1));
-        return rd_status;
+        return 0;
 }
 
 /**
@@ -213,9 +206,6 @@ int main( void )
                         xHandle );                      /* The task handle */
         OS_ASSERT(status == OS_TASK_CREATE_SUCCESS);
 
-//        const TickType_t xDelay = 500 / portTICK_PERIOD_MS;
-//        vTaskDelay(xDelay);
-
 
 
         /* Start the tasks and timer running. */
@@ -231,7 +221,7 @@ int main( void )
 
 }
 
-int read_bmp_sensor(int32_t *data)
+int read_bmp_sensor()
 {
         struct bmp180_t bmp180;
         int32_t com_rslt = E_BMP_COMM_RES;
@@ -245,13 +235,11 @@ int read_bmp_sensor(int32_t *data)
 
         set_target_address(BMP180_I2C_ADDR);
 
-//        resource_release(RES_MASK(RES_ID_I2C1));
-
         // Set up function pointers
         bmp180.bus_write = bmp_write_reg;
         bmp180.bus_read = bmp_read_reg;
         bmp180.dev_addr = BMP180_I2C_ADDR;
-        bmp180.delay_msec = osDelay;
+        bmp180.delay_msec = os_delay;
 
         com_rslt = bmp180_init(&bmp180);
         com_rslt += bmp180_get_calib_param();
@@ -267,7 +255,7 @@ int read_bmp_sensor(int32_t *data)
 
         resource_release(RES_MASK(RES_ID_I2C1));
 
-        printf("Temp: %u, pres: %u\n", temp, pres);
+        printf("Temp: %u (0.1)°C, Pressure: %u (1.0)Pa\r\n", temp, pres);
 
         return 0;
 }
@@ -279,13 +267,7 @@ static void prvI2CTask_BMP( void *pvParameters )
 {
 //        ad_i2c_init();
         for ( ;; ) {
-                int32_t data;
-                read_bmp_sensor(&data);
-                /*
-                 * Suspend task execution - As soon as WKUP callback function
-                 * is triggered, the task resumes its execution.
-                 */
-//                 OS_EVENT_WAIT(signal_i2c_eeprom, OS_EVENT_FOREVER);
+                read_bmp_sensor();
                  OS_DELAY_MS(1000);
         }
 }
@@ -303,66 +285,26 @@ static void periph_init(void)
  */
 static void prvSetupHardware( void )
 {
-        /*
-         * The IRQ produced by the KEY sub block of the wakeup controller
-         * (debounced IO IRQ) is multiplexed with other trigger sources
-         * (VBUS IRQ, SYS2CMAC IRQ, JTAG present) in a single PDC peripheral
-         * trigger ID (HW_PDC_PERIPH_TRIG_ID_COMBO).
-         */
-//#if !defined(CONFIG_USE_BLE) && (!dg_configENABLE_DEBUGGER) && (!dg_configUSE_SYS_CHARGER)
-//
-//        pdc_wkup_combo_id = hw_pdc_add_entry(HW_PDC_LUT_ENTRY_VAL(
-//                                                            HW_PDC_TRIG_SELECT_PERIPHERAL,
-//                                                            HW_PDC_PERIPH_TRIG_ID_COMBO,
-//                                                            HW_PDC_MASTER_CM33, 0));
-//        OS_ASSERT(pdc_wkup_combo_id != HW_PDC_INVALID_LUT_INDEX);
-//
-//        /*  */
-//        hw_pdc_set_pending(pdc_wkup_combo_id);
-//        hw_pdc_acknowledge(pdc_wkup_combo_id);
-//#endif
-
         /* Init hardware */
         pm_system_init(periph_init);
 
         /* Enable the COM power domain before handling any GPIO pin */
         hw_sys_pd_com_enable();
 
-//        ad_i2c_io_config(((ad_i2c_controller_conf_t *)BMP180)->id,
-//                ((ad_i2c_controller_conf_t *)BMP180)->io, AD_IO_CONF_OFF);
-
-        /* Configure the KEY1 push button on Pro DevKit */
-        HW_GPIO_SET_PIN_FUNCTION(KEY1);
-        HW_GPIO_PAD_LATCH_ENABLE(KEY1);
-
-        /* Lock the mode of the target GPIO pin */
-        HW_GPIO_PAD_LATCH_DISABLE(KEY1);
-
         /* Configure the I2C GPIOs. */
-//        hw_gpio_configure_pin(BMP180_SCL_PORT, BMP180_SCL_PIN, HW_GPIO_MODE_OUTPUT_OPEN_DRAIN, HW_GPIO_FUNC_I2C_SCL, true);
         hw_gpio_configure_pin(BMP180_SCL_PORT, BMP180_SCL_PIN, HW_GPIO_MODE_OUTPUT, HW_GPIO_FUNC_I2C_SCL, true);
         hw_gpio_configure_pin(BMP180_SDA_PORT, BMP180_SDA_PIN, HW_GPIO_MODE_INPUT, HW_GPIO_FUNC_I2C_SDA, true);
         hw_gpio_pad_latch_enable(BMP180_SCL_PORT, BMP180_SCL_PIN);
         hw_gpio_pad_latch_enable(BMP180_SDA_PORT, BMP180_SDA_PIN);
         hw_gpio_configure_pin_power(BMP180_SCL_PORT, BMP180_SCL_PIN, HW_GPIO_POWER_V33);
         hw_gpio_configure_pin_power(BMP180_SDA_PORT, BMP180_SDA_PIN, HW_GPIO_POWER_V33);
-        /* I2C */
-//        static const gpio_config gpio_cfg[] = {
-//               HW_GPIO_PINCONFIG(BMP180_SCL_PORT,
-//                                                        BMP180_SCL_PIN,    OUTPUT,       I2C_SCL,   true),
-//               HW_GPIO_PINCONFIG(BMP180_SDA_PORT,
-//                                                        BMP180_SDA_PIN,    INPUT,        I2C_SDA,   true),
-//                                                        HW_GPIO_PINCONFIG_END // important!!!
-//        };
-//
-//        hw_gpio_configure(gpio_cfg);
 
         /*
          * Initialize I2C controller in master mode with standard communication speed (100 kb/s) and
          * transfer in 7-bit addressing mode.
          */
         static const i2c_config cfg = {
-                .speed = HW_I2C_SPEED_STANDARD,
+                .speed = HW_I2C_SPEED_HIGH,
                 .mode = HW_I2C_MODE_MASTER,
                 .addr_mode = HW_I2C_ADDRESSING_7B
         };
